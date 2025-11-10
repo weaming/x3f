@@ -34,27 +34,43 @@ endif
 
 ifeq ($(TARGET), osx-universal)
 
-all dist: deps/lib/osx-x86_64/opencv/.success deps/lib/osx-i386/opencv/.success
+all dist: deps/lib/osx-arm64/opencv/.success deps/lib/osx-x86_64/opencv/.success \
+          deps/lib/osx-arm64/jpeg/.success deps/lib/osx-x86_64/jpeg/.success
+
+deps/lib/osx-arm64/opencv/.success:
+	$(MAKE) TARGET=osx-arm64 $@
 
 deps/lib/osx-x86_64/opencv/.success:
 	$(MAKE) TARGET=osx-x86_64 $@
 
-deps/lib/osx-i386/opencv/.success:
-	$(MAKE) TARGET=osx-i386 $@
+deps/lib/osx-arm64/jpeg/.success:
+	$(MAKE) TARGET=osx-arm64 $@
+
+deps/lib/osx-x86_64/jpeg/.success:
+	$(MAKE) TARGET=osx-x86_64 $@
 
 else
 
 OPENCV = deps/lib/$(TARGET)/opencv
+JPEG = deps/lib/$(TARGET)/jpeg
 
-all dist: | $(OPENCV)/.success
+all dist: | $(OPENCV)/.success $(JPEG)/.success
 
 $(OPENCV)/.success:
 	./install_opencv.sh $(TARGET) $(CMAKE_TOOLCHAIN)
+
+$(JPEG)/.success:
+	./install_jpeg.sh $(TARGET) $(CMAKE_TOOLCHAIN)
 
 endif
 
 clean_opencv:
 	-@rm -rf deps/lib/*/opencv
+
+clean_jpeg:
+	-@rm -rf deps/lib/*/jpeg
+	-@rm -rf deps/src/libjpeg-turbo-*
+	-@rm -rf deps/src/*/jpeg_build
 
 
 ifeq ($(TARGET_SYS), windows)

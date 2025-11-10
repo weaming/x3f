@@ -90,6 +90,14 @@ ifeq ($(TARGET_SYS), osx)
   CXX = g++
   # Use native SDK without explicit path
   SDKFLAGS =
+ifeq ($(TARGET_CPU), x86_64)
+  # Cross-compile to x86_64 on ARM Mac
+  SDKFLAGS = -arch x86_64
+endif
+ifeq ($(TARGET_CPU), arm64)
+  # Cross-compile to arm64 on Intel Mac (or native on ARM)
+  SDKFLAGS = -arch arm64
+endif
 endif
 endif
 endif
@@ -100,6 +108,11 @@ ifneq ($(STRIP), strip)
 endif
 
 ifeq ($(TARGET), osx-universal)
+
+ifeq ($(HOST_SYS), osx)
+  # Native macOS supports lipo
+  LIPO = lipo
+endif
 
 ifndef LIPO
   $(error Building universal binaries for target $(TARGET) on host $(HOST) is unsupported)

@@ -42,6 +42,15 @@ OPENCV_EXTRA_FLAGS=
 if [[ $TARGET =~ ^osx- ]]; then
     if [ `uname -s` = Darwin ]; then
 	OPENCV_EXTRA_FLAGS="$OPENCV_EXTRA_FLAGS"
+	# Extract target CPU architecture
+	TARGET_CPU=$(echo $TARGET | sed "s/^osx-//")
+	if [ "$TARGET_CPU" = "x86_64" ]; then
+	    echo "Building for x86_64 architecture"
+	    OCV_FLAGS="$OCV_FLAGS -D CMAKE_OSX_ARCHITECTURES=x86_64"
+	elif [ "$TARGET_CPU" = "arm64" ]; then
+	    echo "Building for arm64 architecture"
+	    OCV_FLAGS="$OCV_FLAGS -D CMAKE_OSX_ARCHITECTURES=arm64"
+	fi
     else
 	# APPLE and UNIX are not defined automatically when cross-compiling
 	OCV_FLAGS="$OCV_FLAGS -D APPLE=1 -D UNIX=1"

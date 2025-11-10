@@ -58,7 +58,14 @@ ZLIB =
 ifneq ($(TARGET_SYS), linux)
 ZLIB = $(OCV)/lib/opencv4/3rdparty/libzlib.a
 endif
-OCV_AUX = $(OCV)/lib/opencv4/3rdparty/libtegra_hal.a $(OCV)/lib/opencv4/3rdparty/libittnotify.a $(ZLIB)
+
+# libtegra_hal is only available on ARM architectures
+TEGRA_HAL =
+ifeq ($(TARGET_CPU), arm64)
+TEGRA_HAL = $(OCV)/lib/opencv4/3rdparty/libtegra_hal.a
+endif
+
+OCV_AUX = $(TEGRA_HAL) $(OCV)/lib/opencv4/3rdparty/libittnotify.a $(ZLIB)
 
 OCV_CFLAGS = -I$(OCV)/include/opencv4
 OCV_LIBS = $(addprefix $(OCV)/lib/libopencv_,photo.a imgproc.a core.a) $(OCV_AUX)
@@ -68,8 +75,9 @@ TIFF_INC2 = ../deps/src/$(TARGET)/opencv_build/3rdparty/libtiff
 TIFF_CFLAGS = -I$(TIFF_INC1) -I$(TIFF_INC2)
 TIFF_LIBS = $(OCV)/lib/opencv4/3rdparty/liblibtiff.a $(ZLIB)
 
-JPEG_CFLAGS = -I/opt/homebrew/include
-JPEG_LIBS = -L/opt/homebrew/lib -ljpeg
+JPEG = ../deps/lib/$(TARGET)/jpeg
+JPEG_CFLAGS = -I$(JPEG)/include
+JPEG_LIBS = $(JPEG)/lib/libjpeg.a
 
 CFLAGS = $(CFBASE) $(TIFF_CFLAGS) $(JPEG_CFLAGS) -Os -Wall $(C)
 CXXFLAGS = $(CFLAGS) $(OCV_CFLAGS) -std=c++11 -fvisibility-inlines-hidden -fvisibility=hidden
@@ -88,18 +96,20 @@ all: $(addprefix $(BINDIR)/,$(PROGS))
 
 ifeq ($(TARGET), osx-universal)
 
-$(BINDIR)/%: ../bin/osx-x86_64/% ../bin/osx-i386/% | $(BINDIR)
+$(BINDIR)/%: ../bin/osx-arm64/% ../bin/osx-x86_64/% | $(BINDIR)
 	$(LIPO) -create -output $@ $^
+	@echo "Created universal binary: $@"
+	@lipo -info $@
 
 .PHONY: force
+
+.SECONDARY: $(addprefix ../bin/osx-arm64/,$(PROGS))
+../bin/osx-arm64/%: force
+	$(MAKE) TARGET=osx-arm64 $@
 
 .SECONDARY: $(addprefix ../bin/osx-x86_64/,$(PROGS))
 ../bin/osx-x86_64/%: force
 	$(MAKE) TARGET=osx-x86_64 $@
-
-.SECONDARY: $(addprefix ../bin/osx-i386/,$(PROGS))
-../bin/osx-i386/%: force
-	$(MAKE) TARGET=osx-i386 $@
 
 else
 
@@ -123,7 +133,7 @@ $(BINDIR)/%.o: %.cpp | $(BINDIR)
 #
 
 $(BINDIR)/$(VERSION_O): x3f_version.c | $(BINDIR)
-	$(CC) -DVERSION=\"$(VERSION)\" $< -c -MD -o $@
+	$(CC) $(CFLAGS) -DVERSION=\"$(VERSION)\" $< -c -MD -o $@
 
 endif
 
@@ -138,7 +148,12 @@ DIST_DIR = ../dist/$(DIST)
 DIST_TGZ = ../dist/$(DIST).tar.gz
 DIST_ZIP = ../dist/$(DIST).zip
 DIST_FILES = doc/readme.txt doc/copyright.txt bin/x3f_extract$(EXE)
-TARFLAGS = --owner=root --group=root
+
+# macOS tar doesn't support --owner/--group flags
+TARFLAGS =
+ifneq ($(TARGET_SYS), osx)
+  TARFLAGS = --owner=root --group=root
+endif
 
 ifeq ($(TARGET_SYS), windows)
 dist: $(DIST_ZIP)
