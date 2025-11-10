@@ -141,8 +141,15 @@ static double grayscale_mix_blue[3] = {0.0, -1.0, 2.0};
 
 static int get_bmt_to_xyz_noconvert(x3f_t *x3f, char *wb, double *bmt_to_xyz)
 {
-  /* TODO: assuming working space to be Adobe RGB. Is that acceptable? */
-  x3f_AdobeRGB_to_XYZ(bmt_to_xyz);
+  /* Use sRGB as it's the standard color space for most displays and software */
+  x3f_sRGB_to_XYZ(bmt_to_xyz);
+  return 1;
+}
+
+static int get_bmt_to_xyz_srgb(x3f_t *x3f, char *wb, double *bmt_to_xyz)
+{
+  /* sRGB -> XYZ color matrix for linear sRGB data */
+  x3f_sRGB_to_XYZ(bmt_to_xyz);
   return 1;
 }
 
@@ -152,6 +159,7 @@ static const camera_profile_t camera_profiles[] = {
   {"Grayscale (red filter)", get_bmt_to_xyz_noconvert, grayscale_mix_red},
   {"Grayscale (blue filter)", get_bmt_to_xyz_noconvert, grayscale_mix_blue},
   {"Unconverted", get_bmt_to_xyz_noconvert, NULL},
+  {"Linear sRGB", get_bmt_to_xyz_srgb, NULL},
 };
 
 static int write_camera_profile(x3f_t *x3f, char *wb,
@@ -293,6 +301,7 @@ x3f_return_t x3f_dump_raw_data_as_dng(x3f_t *x3f,
 				      int denoise,
 				      int apply_sgain,
 				      char *wb,
+				      int linear_srgb,
 				      int compress)
 {
   x3f_return_t ret;
@@ -353,15 +362,31 @@ x3f_return_t x3f_dump_raw_data_as_dng(x3f_t *x3f,
     TIFFSetField(f_out, TIFFTAG_BASELINEEXPOSURE, baseline_exposure);
   }
 
-  ret = write_camera_profiles(x3f, wb, camera_profiles,
-			      sizeof(camera_profiles)/sizeof(camera_profile_t),
-			      f_out);
-  if (ret != X3F_OK) {
-    x3f_printf(ERR, "Could not write camera profiles\n");
-    TIFFClose(f_out);
-    free(image.buf);
-    free(preview.buf);
-    return ret;
+  if (linear_srgb) {
+    /* Use "Linear sRGB" profile with sRGB->XYZ matrix */
+    /* This tells Lightroom the data is already in sRGB color space */
+    const camera_profile_t *srgb_profile = &camera_profiles[5]; /* "Linear sRGB" */
+    x3f_printf(INFO, "Using 'Linear sRGB' camera profile\n");
+    ret = write_camera_profiles(x3f, wb, srgb_profile, 1, f_out);
+    if (ret != X3F_OK) {
+      x3f_printf(ERR, "Could not write camera profiles\n");
+      TIFFClose(f_out);
+      free(image.buf);
+      free(preview.buf);
+      return ret;
+    }
+  } else {
+    /* Original behavior: use all profiles */
+    ret = write_camera_profiles(x3f, wb, camera_profiles,
+				sizeof(camera_profiles)/sizeof(camera_profile_t),
+				f_out);
+    if (ret != X3F_OK) {
+      x3f_printf(ERR, "Could not write camera profiles\n");
+      TIFFClose(f_out);
+      free(image.buf);
+      free(preview.buf);
+      return ret;
+    }
   }
 
   if (!x3f_get_gain(x3f, wb, gain)) {
@@ -371,11 +396,94 @@ x3f_return_t x3f_dump_raw_data_as_dng(x3f_t *x3f,
     free(preview.buf);
     return X3F_ARGUMENT_ERROR;
   }
-  x3f_3x1_invert(gain, gain_inv);
-  vec_double_to_float(gain_inv, as_shot_neutral, 3);
+
+  /* Apply white balance via color matrix conversion if requested */
+  if (linear_srgb) {
+    int row, col, color;
+    uint16_t max_out = 65535;
+    double raw_to_xyz[9], raw_to_prophoto[9];
+
+    x3f_printf(INFO, "Applying white balance via color matrix (linear space)\n");
+
+    /* Get raw_to_xyz matrix which includes white balance gain */
+    if (!x3f_get_raw_to_xyz(x3f, wb, raw_to_xyz)) {
+      x3f_printf(ERR, "Could not get raw_to_xyz for white balance: %s\n", wb);
+      TIFFClose(f_out);
+      free(image.buf);
+      free(preview.buf);
+      return X3F_ARGUMENT_ERROR;
+    }
+
+    /* Use sRGB as intermediate color space */
+    double xyz_to_srgb[9];
+
+    x3f_XYZ_to_sRGB(xyz_to_srgb);
+
+    /* Combine: raw -> XYZ(D65) -> sRGB */
+    x3f_3x3_3x3_mul(xyz_to_srgb, raw_to_xyz, raw_to_prophoto);
+
+    x3f_printf(INFO, "Applying linear color matrix conversion...\n");
+
+    /* Apply color matrix to each pixel */
+    for (row = 0; row < image.rows; row++) {
+      for (col = 0; col < image.columns; col++) {
+        uint16_t *valp[3];
+        double input[3], output[3];
+
+        /* Get pixel pointers */
+        for (color = 0; color < 3; color++) {
+          valp[color] = &image.data[image.row_stride*row + image.channels*col + color];
+          /* Normalize to [0, 1] based on black and white levels */
+          input[color] = (*valp[color] - ilevels.black[color]) /
+                        (ilevels.white[color] - ilevels.black[color]);
+        }
+
+        /* Apply color matrix */
+        x3f_3x3_3x1_mul(raw_to_prophoto, input, output);
+
+        /* Convert back to 16-bit, staying in linear space */
+        for (color = 0; color < 3; color++) {
+          double val = output[color] * max_out;
+          if (val < 0) *valp[color] = 0;
+          else if (val > max_out) *valp[color] = max_out;
+          else *valp[color] = (uint16_t)val;
+        }
+      }
+    }
+
+    /* Reset black and white levels for linear sRGB */
+    ilevels.black[0] = ilevels.black[1] = ilevels.black[2] = 0.0;
+    ilevels.white[0] = ilevels.white[1] = ilevels.white[2] = 65535;
+
+    /* Since WB is already applied, set AsShotNeutral to neutral */
+    as_shot_neutral[0] = 1.0f;
+    as_shot_neutral[1] = 1.0f;
+    as_shot_neutral[2] = 1.0f;
+
+    x3f_printf(INFO, "Color matrix applied - data is now linear sRGB with WB\n");
+    x3f_printf(INFO, "AsShotNeutral set to neutral: [1.0, 1.0, 1.0]\n");
+  } else {
+    /* Original behavior: store inverse of gain as AsShotNeutral */
+    x3f_3x1_invert(gain, gain_inv);
+    vec_double_to_float(gain_inv, as_shot_neutral, 3);
+
+    x3f_printf(INFO, "Camera WB gains: R=%.4f G=%.4f B=%.4f\n",
+               gain[0], gain[1], gain[2]);
+    x3f_printf(INFO, "AsShotNeutral: R=%.4f G=%.4f B=%.4f\n",
+               as_shot_neutral[0], as_shot_neutral[1], as_shot_neutral[2]);
+  }
+
   TIFFSetField(f_out, TIFFTAG_ASSHOTNEUTRAL, 3, as_shot_neutral);
 
+  /* Add description for linear sRGB output */
+  if (linear_srgb) {
+    TIFFSetField(f_out, TIFFTAG_IMAGEDESCRIPTION,
+                 "Preprocessed linear sRGB with white balance applied. "
+                 "Camera Calibration matrix is for reference only.");
+  }
+
 #define WB_D65 "Overcast"
+  /* Use D65 white balance for calibration */
   if (!x3f_get_gain(x3f, WB_D65, gain)) {
     x3f_printf(ERR, "Could not get gain for white balance: %s\n", WB_D65);
     TIFFClose(f_out);

@@ -68,7 +68,10 @@ TIFF_INC2 = ../deps/src/$(TARGET)/opencv_build/3rdparty/libtiff
 TIFF_CFLAGS = -I$(TIFF_INC1) -I$(TIFF_INC2)
 TIFF_LIBS = $(OCV)/lib/opencv4/3rdparty/liblibtiff.a $(ZLIB)
 
-CFLAGS = $(CFBASE) $(TIFF_CFLAGS) -Os -Wall $(C)
+JPEG_CFLAGS = -I/opt/homebrew/include
+JPEG_LIBS = -L/opt/homebrew/lib -ljpeg
+
+CFLAGS = $(CFBASE) $(TIFF_CFLAGS) $(JPEG_CFLAGS) -Os -Wall $(C)
 CXXFLAGS = $(CFLAGS) $(OCV_CFLAGS) -std=c++11 -fvisibility-inlines-hidden -fvisibility=hidden
 LDFLAGS = $(LDBASE) $(L)
 
@@ -102,8 +105,8 @@ else
 
 -include $(BINDIR)/*.d
 
-$(BINDIR)/x3f_extract$(EXE): $(addprefix $(BINDIR)/,x3f_extract.o $(VERSION_O) x3f_io.o x3f_process.o x3f_meta.o x3f_image.o x3f_spatial_gain.o x3f_output_dng.o x3f_output_tiff.o x3f_output_ppm.o x3f_histogram.o x3f_print_meta.o x3f_dump.o x3f_matrix.o x3f_dngtags.o x3f_denoise_utils.o x3f_denoise_aniso.o x3f_denoise.o x3f_printf.o $(AUXOBJS)) $(OCV_LIBS) $(TIFF_LIBS)
-	$(CXX) $^ -o $@ $(LDFLAGS) -lm
+$(BINDIR)/x3f_extract$(EXE): $(addprefix $(BINDIR)/,x3f_extract.o $(VERSION_O) x3f_io.o x3f_process.o x3f_meta.o x3f_image.o x3f_spatial_gain.o x3f_output_dng.o x3f_output_tiff.o x3f_output_ppm.o x3f_output_jpeg.o x3f_histogram.o x3f_print_meta.o x3f_dump.o x3f_matrix.o x3f_dngtags.o x3f_denoise_utils.o x3f_denoise_aniso.o x3f_denoise.o x3f_printf.o $(AUXOBJS)) $(OCV_LIBS) $(TIFF_LIBS)
+	$(CXX) $^ -o $@ $(LDFLAGS) $(JPEG_LIBS) -lm
 
 $(BINDIR)/x3f_io_test$(EXE): $(addprefix $(BINDIR)/,x3f_io_test.o $(VERSION_O) x3f_io.o x3f_print_meta.o x3f_printf.o $(AUXOBJS))
 	$(CC) $^ -o $@ $(LDFLAGS)

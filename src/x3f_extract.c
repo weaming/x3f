@@ -14,6 +14,7 @@
 #include "x3f_output_dng.h"
 #include "x3f_output_tiff.h"
 #include "x3f_output_ppm.h"
+#include "x3f_output_jpeg.h"
 #include "x3f_histogram.h"
 #include "x3f_print_meta.h"
 #include "x3f_dump.h"
@@ -25,14 +26,15 @@
 #include <string.h>
 
 typedef enum
-  { META      = 0,
-    JPEG      = 1,
-    RAW       = 2,
-    TIFF      = 3,
-    DNG       = 4,
-    PPMP3     = 5,
-    PPMP6     = 6,
-    HISTOGRAM = 7}
+  { META        = 0,
+    JPEG        = 1,
+    RAW         = 2,
+    TIFF        = 3,
+    DNG         = 4,
+    PPMP3       = 5,
+    PPMP6       = 6,
+    HISTOGRAM   = 7,
+    JPEGFROMRAW = 8}
   output_file_type_t;
 
 static char *extension[] =
@@ -43,7 +45,8 @@ static char *extension[] =
     ".dng",
     ".ppm",
     ".ppm",
-    ".csv" };
+    ".csv",
+    ".jpg" };
 
 static void usage(char *progname)
 {
@@ -51,10 +54,11 @@ static void usage(char *progname)
           "usage: %s <SWITCHES> <file1> ...\n"
           "   -o <DIR>        Use <DIR> as output directory\n"
           "   -v              Verbose output for debugging\n"
-          "   -q              Suppress all messages except errors\n"
+          "   -q              Suppress all messages except errors\n\n"
 	  "ONE OFF THE FORMAT SWITCHWES\n"
 	  "   -meta           Dump metadata\n"
           "   -jpg            Dump embedded JPEG\n"
+          "   -jpg-from-raw   Convert RAW to JPEG with full processing\n"
           "   -raw            Dump RAW area undecoded\n"
           "   -tiff           Dump RAW/color as 3x16 bit TIFF\n"
           "   -dng            Dump RAW as DNG LinearRaw (default)\n"
@@ -62,13 +66,12 @@ static void usage(char *progname)
           "                   NOTE: 16 bit PPM/P3 is not generally supported\n"
           "   -ppm            Dump RAW/color as 3x16 bit PPM/P6 (binary)\n"
           "   -histogram      Dump histogram as csv file\n"
-          "   -loghist        Dump histogram as csv file, with log exposure\n"
+          "   -loghist        Dump histogram as csv file, with log exposure\n\n"
 	  "APPROPRIATE COMBINATIONS OF MODIFIER SWITCHES\n"
-	  "   -color <COLOR>  Convert to RGB color space\n"
-	  "                   (none, sRGB, AdobeRGB, ProPhotoRGB)\n"
-	  "                   'none' means neither scaling, applying gamma\n"
-	  "                   nor converting color space.\n"
-	  "                   This switch does not affect DNG output\n"
+	  "   -color <COLOR>  Convert to RGB color space (none, sRGB, AdobeRGB, ProPhotoRGB)\n"
+	  "                   'none' means neither scaling, applying gamma nor converting color space.\n"
+	  "                   For JPEG output from RAW: affects gamma correction (sRGB/AdobeRGB: 2.2, ProPhotoRGB: 1.8)\n"
+	  "                   This switch does not affect DNG output\n\n"
           "   -unprocessed    Dump RAW without any preprocessing\n"
           "   -qtop           Dump Quattro top layer without preprocessing\n"
           "   -no-crop        Do not crop to active area\n"
@@ -76,7 +79,12 @@ static void usage(char *progname)
           "   -no-sgain       Do not apply spatial gain (color compensation)\n"
           "   -no-fix-bad     Do not fix bad pixels\n"
           "   -sgain          Apply spatial gain (default except for Quattro)\n"
-          "   -wb <WB>        Select white balance preset\n"
+          "   -wb <WB>        Select white balance preset:\n"
+          "                   Auto (自动), Sunlight (日光), Shadow (阴影),\n"
+          "                   Overcast (阴天), Incandescent (白炽灯),\n"
+          "                   Florescent (荧光灯), Flash (闪光灯),\n"
+          "                   Custom (自定义), ColorTemp (色温), AutoLSP\n"
+          "   -linear-srgb    Output linear sRGB with white balance applied (for DNG)\n"
           "   -compress       Enable ZIP compression for DNG and TIFF output\n"
           "   -ocl            Use OpenCL\n"
 	  "\n"
@@ -188,6 +196,7 @@ int main(int argc, char *argv[])
   int errors = 0;
   int log_hist = 0;
   char *wb = NULL;
+  int apply_wb_gain = 0;
   int compress = 0;
   int use_opencl = 0;
   char *outdir = NULL;
@@ -206,6 +215,8 @@ int main(int argc, char *argv[])
     /* Only one of those switches is valid, the last one */
     if (!strcmp(argv[i], "-jpg"))
       Z, extract_jpg = 1, file_type = JPEG;
+    else if (!strcmp(argv[i], "-jpg-from-raw"))
+      Z, extract_raw = 1, file_type = JPEGFROMRAW;
     else if (!strcmp(argv[i], "-meta"))
       Z, file_type = META;
     else if (!strcmp(argv[i], "-raw"))
@@ -260,6 +271,8 @@ int main(int argc, char *argv[])
       apply_sgain = 1;
     else if ((!strcmp(argv[i], "-wb")) && (i+1)<argc)
       wb = argv[++i];
+    else if (!strcmp(argv[i], "-linear-srgb"))
+      apply_wb_gain = 1;
     else if (!strcmp(argv[i], "-compress"))
       compress = 1;
     else if (!strcmp(argv[i], "-ocl"))
@@ -407,7 +420,7 @@ int main(int argc, char *argv[])
       x3f_printf(INFO, "Dump RAW as DNG to %s\n", outfile);
       ret_dump = x3f_dump_raw_data_as_dng(x3f, tmpfile,
 					  fix_bad, denoise, sgain, wb,
-					  compress);
+					  apply_wb_gain, compress);
       break;
     case PPMP3:
     case PPMP6:
@@ -423,6 +436,12 @@ int main(int argc, char *argv[])
 						color_encoding,
 						crop, fix_bad, denoise, sgain, wb,
 						log_hist);
+      break;
+    case JPEGFROMRAW:
+      x3f_printf(INFO, "Convert RAW to JPEG to %s\n", outfile);
+      ret_dump = x3f_dump_raw_data_as_jpeg(x3f, tmpfile,
+					   fix_bad, denoise, sgain, wb,
+					   apply_wb_gain, color_encoding);
       break;
     }
 
