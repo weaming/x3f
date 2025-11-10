@@ -12,7 +12,7 @@ ifeq ($(UNAME), Linux)
 else
 ifeq ($(UNAME), Darwin)
   HOST_SYS = osx
-  HOST_CPU = universal
+  HOST_CPU = $(shell uname -m)
 endif
 endif
 endif
@@ -88,7 +88,8 @@ ifeq ($(HOST_SYS), osx)
 ifeq ($(TARGET_SYS), osx)
   CC = gcc
   CXX = g++
-  SDKFLAGS = -isysroot /Developer/SDKs/MacOSX10.7.sdk -mmacosx-version-min=10.7 -arch $(TARGET_CPU)
+  # Use native SDK without explicit path
+  SDKFLAGS =
 endif
 endif
 endif

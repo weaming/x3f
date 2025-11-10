@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(make:*)",
+      "Bash(chmod:*)",
+      "Bash(cmake:*)",
+      "Bash(tee:*)",
+      "Bash(brew info:*)",
+      "Bash(pkg-config:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

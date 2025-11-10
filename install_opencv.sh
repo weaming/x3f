@@ -24,22 +24,24 @@ OCV_SRC=$SRC/opencv
 OCV_BLD=$SRC/$TARGET/opencv_build
 OCV_LIB=$LIB/opencv
 
-OCV_URL=https://github.com/erikrk/opencv.git
-OCV_HASH=01d3df0d00e5c802108b90bd2dedb50e9a9ecacf
+OCV_URL=https://github.com/opencv/opencv.git
+OCV_BRANCH=4.x
 
 OCV_FLAGS="-D CMAKE_BUILD_TYPE=RELEASE -D BUILD_SHARED_LIBS=OFF \
-           -D WITH_IPP=OFF -D WITH_TBB=ON -D BUILD_TBB=ON \
+           -D CMAKE_POLICY_VERSION_MINIMUM=3.5 \
+           -D WITH_IPP=OFF -D WITH_TBB=OFF -D BUILD_TBB=OFF \
+           -D WITH_FFMPEG=OFF -D WITH_GSTREAMER=OFF \
            -D BUILD_TIFF=ON -D WITH_JPEG=OFF -D WITH_JASPER=OFF \
            -D WITH_PNG=OFF -D WITH_WEBP=OFF -D WITH_OPENEXR=OFF \
            -D BUILD_TESTS=OFF -D BUILD_PERF_TESTS=OFF -D BUILD_DOCS=OFF \
            -D BUILD_opencv_python2=OFF -D BUILD_opencv_python3=OFF \
-           -D BUILD_opencv_java=OFF -D BUILD_opencv_apps=OFF"
+           -D BUILD_opencv_java=OFF -D BUILD_opencv_apps=OFF \
+           -D BUILD_opencv_videoio=OFF"
 OPENCV_EXTRA_FLAGS=
 
 if [[ $TARGET =~ ^osx- ]]; then
     if [ `uname -s` = Darwin ]; then
-	OPENCV_EXTRA_FLAGS="$OPENCV_EXTRA_FLAGS \
-                            -isysroot /Developer/SDKs/MacOSX10.7.sdk"
+	OPENCV_EXTRA_FLAGS="$OPENCV_EXTRA_FLAGS"
     else
 	# APPLE and UNIX are not defined automatically when cross-compiling
 	OCV_FLAGS="$OCV_FLAGS -D APPLE=1 -D UNIX=1"
@@ -56,8 +58,7 @@ if [[ $TARGET =~ ^osx- ]]; then
 	ln -fs $TOOL_PATH $SRC/cmake_workaround/install_name_tool || exit 1
 	PATH="$PATH:$SRC/cmake_workaround"
     fi
-    OPENCV_EXTRA_FLAGS="$OPENCV_EXTRA_FLAGS -mmacosx-version-min=10.7 \
-                        -arch `echo $TARGET | sed 's/^osx-//'` -Wno-pragmas"
+    OPENCV_EXTRA_FLAGS="$OPENCV_EXTRA_FLAGS -Wno-pragmas"
 fi
 
 if [[ $TARGET =~ ^windows- ]]; then
@@ -78,12 +79,12 @@ if [ -e $OCV_SRC ]; then
 else
     echo Clone opencv
     mkdir -p $SRC || exit 1
-    git clone $OCV_URL $OCV_SRC || exit 1
+    git clone --depth 1 -b $OCV_BRANCH $OCV_URL $OCV_SRC || exit 1
     cd $OCV_SRC || exit 1
 fi
 
 echo Build Opencv
-git checkout $OCV_HASH || exit 1
+git checkout origin/$OCV_BRANCH || exit 1
 mkdir -p $OCV_BLD || exit 1
 mkdir -p $OCV_LIB || exit 1
 cd $OCV_BLD || exit 1
